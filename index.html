@@ -1,0 +1,380 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Student Response Recorder</title>
+    <script src="https://unpkg.com/@tailwindcss/browser@4"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+        .recording-container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            margin-top: 1rem;
+        }
+        .recorded-audio-container {
+            margin-top: 0.5rem;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            width: 100%;
+        }
+        .recorded-audio {
+            width: 100%;
+            max-width: 400px;
+        }
+        .image-upload-container {
+            display: flex;
+            flex-direction: column;
+            align-items: flex-start;
+            margin-bottom: 1rem;
+        }
+        .image-preview {
+            max-width: 200px;
+            max-height: 200px;
+            margin-top: 0.5rem;
+            display: none;
+            border: 1px solid #ccc;
+            border-radius: 0.5rem;
+        }
+        #upload-status-container {
+            margin-top: 1rem;
+            text-align: center;
+            font-weight: bold;
+        }
+    </style>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        'inter': ['Inter', 'sans-serif'],
+                    },
+                },
+            },
+        }
+    </script>
+</head>
+<body class="bg-gray-100 p-4">
+    <h1 class="text-2xl font-semibold text-center text-blue-600 mb-6">Class Response Recorder</h1>
+    <div id="questions-container" class="space-y-6">
+        </div>
+    <div id="upload-status-container" style="display: none;">
+        <p id="upload-status">Uploading...</p>
+    </div>
+    <script>
+        const questions = [
+            {
+                text: "What is your favorite book and why?",
+                imageUrl: "",
+            },
+            {
+                text: "Describe your dream vacation.",
+                imageUrl: "",
+            },
+            {
+                text: "What is a skill you would like to learn?",
+                imageUrl: "",
+            },
+            {
+                text: "If you could have any superpower, what would it be?",
+                imageUrl: "",
+            },
+            {
+                text: "What is your favorite animal and why?",
+                imageUrl: "",
+            },
+            {
+                text: "Describe a memorable childhood experience.",
+                imageUrl: "",
+            },
+            {
+                text: "What is a goal you are currently working towards?",
+                imageUrl: "",
+            },
+            {
+                text: "If you could travel back in time, where would you go?",
+                imageUrl: "",
+            },
+            {
+                text: "What is a food you can't live without?",
+                imageUrl: "",
+            },
+            {
+                text: "What is something that makes you happy?",
+                imageUrl: "",
+            },
+        ];
+        const questionsContainer = document.getElementById("questions-container");
+        const uploadStatusContainer = document.getElementById("upload-status-container");
+        const uploadStatus = document.getElementById("upload-status");
+        questions.forEach((question, index) => {
+            const questionDiv = document.createElement("div");
+            questionDiv.classList.add("bg-white", "rounded-lg", "shadow-md", "p-6");
+            questionDiv.innerHTML = `
+                <h2 class="text-xl font-semibold text-gray-800 mb-4">${question.text}</h2>
+                <div class="image-upload-container">
+                    <label for="image-upload-${index}" class="block text-gray-700 text-sm font-bold mb-2">Upload Image:</label>
+                    <input type="file" id="image-upload-${index}" accept="image/*" class="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline">
+                    <img id="image-preview-${index}" src="#" alt="Image Preview" class="image-preview">
+                </div>
+                <div class="mb-4">
+                    <label for="name-${index}" class="block text-gray-700 text-sm font-bold mb-2">Your Name:</label>
+                    <input type="text" id="name-${index}" placeholder="Enter your name" required
+                           class="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline">
+                </div>
+                <div class="recording-container" id="recording-container-${index}">
+                    <button id="record-button-${index}" class="bg-green-500 hover:bg-green-700 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline">Start Recording</button>
+                    <div class="recorded-audio-container" id="recorded-audio-container-${index}" style="display: none;">
+                        <audio id="recorded-audio-${index}" controls class="recorded-audio"></audio>
+                    </div>
+                    <p id="recording-status-${index}" class="mt-2 text-gray-600"></p>
+                    <div id="error-message-${index}" class="mt-2 text-red-500"></div>
+                </div>
+            `;
+            questionsContainer.appendChild(questionDiv);
+        });
+        const recordedAudios = {};
+        const mediaRecorders = {};
+        let recordingIndex = null;
+        // Load the Google Drive API script
+        const script = document.createElement('script');
+        script.src = 'https://apis.google.com/js/api.js';
+        script.onload = () => {
+            // Initialize the Google API client
+            gapi.load('client', () => {
+                // This is the API key for your Google Cloud Project.  Replace with your actual API key.
+                const apiKey = 'YOUR_API_KEY'; // Replace with your API key
+                // This is the Client ID for your Google Cloud Project.  Replace with your actual Client ID.
+                const clientId = 'YOUR_CLIENT_ID';  // Replace with your Client ID
+                gapi.client.init({
+                    apiKey: apiKey,
+                    clientId: clientId,
+                    discoveryDocs: ['https://www.googleapis.com/discovery/v1/apis/drive/v3/rest'],
+                    scope: 'https://www.googleapis.com/auth/drive.file',
+                }).then(() => {
+                    // Check if the user is signed in.
+                    gapi.auth2.getAuthInstance().isSignedIn.listen(updateSignInStatus);
+                    updateSignInStatus(gapi.auth2.getAuthInstance().isSignedIn.get());
+                }).catch(error => {
+                    console.error("Error initializing gapi:", error);
+                    alert('Failed to initialize Google API. Check console for details.');
+                });
+            });
+        };
+        script.onerror = () => {
+            console.error("Failed to load Google API script");
+            alert('Failed to load Google API.  Check your internet connection.');
+        };
+        document.body.appendChild(script);
+        function updateSignInStatus(isSignedIn) {
+            if (isSignedIn) {
+                console.log('User is signed in');
+                // You could potentially enable a button here to allow starting the upload process
+            } else {
+                console.log('User is signed out');
+                //gapi.auth2.getAuthInstance().signIn();  // Removed auto sign-in
+            }
+        }
+        function uploadFile(file, fileName, folderId) {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = (event) => {
+                    const fileData = event.target.result;
+                    const boundary = '-------314159265358979323846';
+                    const delimiter = "\r\n--" + boundary + "\r\n";
+                    const close_delim = "\r\n--" + boundary + "--";
+                    const contentType = file.type || 'audio/webm'; // Use file.type if available
+                    const metadata = {
+                        name: fileName,
+                        mimeType: contentType,
+                        parents: folderId ? [folderId] : [], // Optional folder ID
+                    };
+                    const multipartRequestBody =
+                        delimiter +
+                        'Content-Type: application/json\r\n\r\n' +
+                        JSON.stringify(metadata) +
+                        delimiter +
+                        'Content-Type: ' + contentType + '\r\n' +
+                        'Content-Transfer-Encoding: binary\r\n' +
+                        '\r\n' +
+                        fileData +
+                        close_delim;
+                    const request = gapi.client.request({
+                        method: 'POST',
+                        path: '/upload/drive/v3/files',
+                        params: { uploadType: 'multipart' },
+                        headers: {
+                            'Content-Type': 'multipart/mixed; boundary="' + boundary + '"',
+                        },
+                        body: multipartRequestBody,
+                    });
+                    request.then((response) => {
+                        if (response.result && response.result.id) {
+                            console.log('File uploaded successfully! File ID:', response.result.id);
+                            resolve(response.result.id); // Resolve with the file ID
+                        } else {
+                            console.error('Failed to upload file:', response);
+                            reject(new Error('Failed to upload file'));
+                        }
+                    }).catch((error) => {
+                        console.error('Error uploading file:', error);
+                        reject(error); // Reject with the error
+                    });
+                };
+                reader.onerror = (error) => {
+                    console.error("Error reading file:", error);
+                    reject(error);
+                };
+                reader.readAsArrayBuffer(file); // Use readAsArrayBuffer for binary data
+            });
+        }
+        // Function to create a folder in Google Drive
+        function createFolder(folderName) {
+            return new Promise((resolve, reject) => {
+                const metadata = {
+                    name: folderName,
+                    mimeType: 'application/vnd.google-apps.folder',
+                };
+                const request = gapi.client.request({
+                    method: 'POST',
+                    path: '/drive/v3/files',
+                    params: { fields: 'id' },
+                    body: metadata,
+                });
+                request.then((response) => {
+                    if (response.result && response.result.id) {
+                        console.log('Folder created successfully! Folder ID:', response.result.id);
+                        resolve(response.result.id); // Resolve with the folder ID
+                    } else {
+                        console.error('Failed to create folder:', response);
+                        reject(new Error('Failed to create folder'));
+                    }
+                }).catch((error) => {
+                    console.error('Error creating folder:', error);
+                    reject(error); // Reject with the error
+                });
+            });
+        }
+        //Global variable for folder ID
+        let recordingsFolderId = null;
+        // Create a folder for the recordings,  You can change the folder name
+        createFolder('Student Recordings')
+            .then(folderId => {
+                recordingsFolderId = folderId;
+                //  folderId is now available, you can proceed with the rest of your logic
+                console.log("Got folder ID:", recordingsFolderId);
+                //  Initialize the recording event listeners here, now that you have the folder ID
+                initializeEventListeners(); // Call this function to set up the event listeners
+            })
+            .catch(error => {
+                console.error("Error creating folder:", error);
+                alert('Failed to create folder in Google Drive.  Check console and try again.');
+            });
+        function initializeEventListeners() {
+            questions.forEach((question, index) => {
+                const recordButton = document.getElementById(`record-button-${index}`);
+                const recordedAudioContainer = document.getElementById(`recorded-audio-container-${index}`);
+                const recordedAudio = document.getElementById(`recorded-audio-${index}`);
+                const recordingStatus = document.getElementById(`recording-status-${index}`);
+                const nameInput = document.getElementById(`name-${index}`);
+                const errorMessageElement = document.getElementById(`error-message-${index}`);
+                const imageUpload = document.getElementById(`image-upload-${index}`);
+                const imagePreview = document.getElementById(`image-preview-${index}`);
+                let mediaRecorder = null;
+                let audioChunks = [];
+                imageUpload.addEventListener('change', (event) => {
+                    const file = event.target.files[0];
+                    if (file) {
+                        const reader = new FileReader();
+                        reader.onload = (e) => {
+                            question.imageUrl = e.target.result;
+                            imagePreview.src = e.target.result;
+                            imagePreview.style.display = "block";
+                        };
+                        reader.readAsDataURL(file);
+                    } else {
+                        question.imageUrl = "";
+                        imagePreview.src = "#";
+                        imagePreview.style.display = "none";
+                    }
+                });
+                recordButton.addEventListener("click", async () => {
+                    recordingIndex = index;
+                    errorMessageElement.textContent = '';
+                    if (nameInput.value.trim() === "") {
+                        errorMessageElement.textContent = "Please enter your name before recording.";
+                        return;
+                    }
+                    if (recordButton.textContent === "Start Recording") {
+                        try {
+                            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                            mediaRecorder = new MediaRecorder(stream);
+                            mediaRecorders[index] = mediaRecorder;
+                            audioChunks = [];
+                            recordedAudioContainer.style.display = "none";
+                            recordedAudio.src = "";
+                            recordedAudio.controls = false;
+                            mediaRecorder.ondataavailable = (event) => {
+                                audioChunks.push(event.data);
+                            };
+                            mediaRecorder.onstop = async () => {
+                                const audioBlob = new Blob(audioChunks, { type: "audio/webm" });
+                                const audioUrl = URL.createObjectURL(audioBlob);
+                                recordedAudios[index] = {
+                                    name: nameInput.value.trim(),
+                                    audioUrl: audioUrl,
+                                };
+                                recordedAudio.src = audioUrl;
+                                recordedAudio.controls = true;
+                                recordedAudioContainer.style.display = "flex";
+                                recordingStatus.textContent = "Recording stopped. Ready to play.";
+                                recordButton.textContent = "Start New Recording";
+                                stream.getTracks().forEach(track => track.stop());
+                                // Upload the file to Google Drive
+                                const fileName = `${nameInput.value.trim()}_recording_${index}.webm`; // Create a unique file name
+                                uploadStatusContainer.style.display = "block"; // Show upload status
+                                try {
+                                    const fileId = await uploadFile(audioBlob, fileName, recordingsFolderId);
+                                    recordingStatus.textContent = `Uploaded to Google Drive! File ID: ${fileId}`;
+                                } catch (error) {
+                                    recordingStatus.textContent = "Upload failed.";
+                                    errorMessageElement.textContent = "Failed to upload recording. Check console for details.";
+                                    console.error("Error uploading to Google Drive:", error);
+                                } finally {
+                                    uploadStatusContainer.style.display = "none"; // Hide upload status
+                                }
+                            };
+                            mediaRecorder.start();
+                            recordButton.textContent = "Stop Recording";
+                            recordingStatus.textContent = "Recording...";
+                        } catch (error) {
+                            console.error("Error accessing microphone:", error);
+                            errorMessageElement.textContent = "Microphone access denied. Please allow microphone access and try again.";
+                            recordingStatus.textContent = "Error: Microphone access denied.";
+                        }
+                    } else {
+                        if (mediaRecorder) {
+                            mediaRecorder.stop();
+                        }
+                        recordingStatus.textContent = "Stopping recording...";
+                    }
+                });
+            });
+        }
+        function displayRecordings() {
+            console.log("Recorded Audios:", recordedAudios);
+            alert("Check the console to see the recorded data. Name and URL of the recording are in the console.  Image URLs are also in the question objects.  See the console.");
+        }
+        const displayButton = document.createElement("button");
+        displayButton.textContent = "Show Recordings in Console";
+        displayButton.classList.add("bg-blue-500", "hover:bg-blue-700", "text-white", "font-bold", "py-2", "px-4", "rounded", "focus:outline-none", "focus:shadow-outline", "mt-8", "block", "mx-auto");
+        displayButton.onclick = displayRecordings;
+        document.body.appendChild(displayButton);
+    </script>
+</body>
+</html>
